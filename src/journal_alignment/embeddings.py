@@ -7,6 +7,69 @@ from typing import Any
 import numpy as np
 
 
+def chunk_text_by_tokens(
+    text: str,
+    model: Any,
+    max_tokens: int | None = None,
+) -> list[str]:
+    """Split text into chunks that fit the model tokenizer limit."""
+
+    if not isinstance(text, str):
+        raise TypeError("text must be a string.")
+    if not text.strip():
+        return []
+
+    tokenizer = getattr(model, "tokenizer", None)
+    if tokenizer is None:
+        raise AttributeError("model must expose a tokenizer.")
+
+    token_limit = max_tokens if max_tokens is not None else model.max_seq_length
+    if token_limit < 1:
+        raise ValueError("max_tokens must be at least 1.")
+
+    # Reserve room for special tokens added by the model tokenizer.
+    special_tokens = tokenizer.num_special_tokens_to_add(pair=False)
+    chunk_token_limit = max(1, token_limit - special_tokens)
+    token_ids = tokenizer.encode(text, add_special_tokens=False)
+
+    if len(token_ids) <= chunk_token_limit:
+        return [text]
+
+    chunks = []
+    for start in range(0, len(token_ids), chunk_token_limit):
+        chunk_ids = token_ids[start : start + chunk_token_limit]
+        chunk_text = tokenizer.decode(
+            chunk_ids,
+            skip_special_tokens=True,
+            clean_up_tokenization_spaces=True,
+        ).strip()
+        if chunk_text:
+            chunks.append(chunk_text)
+
+    return chunks
+
+
+def embed_long_text(text: str, model: Any) -> np.ndarray:
+    """Embed text, averaging chunk embeddings when the text is too long."""
+
+    chunks = chunk_text_by_tokens(text, model)
+    if not chunks:
+        raise ValueError("text must be a non-empty string.")
+    if len(chunks) == 1:
+        return model.encode(
+            chunks[0],
+            convert_to_numpy=True,
+            show_progress_bar=False,
+        )
+
+    chunk_embeddings = model.encode(
+        chunks,
+        convert_to_numpy=True,
+        show_progress_bar=False,
+    )
+    return np.mean(chunk_embeddings, axis=0)
+
+
 class EmbeddingModel:
     """Small wrapper around a SentenceTransformer embedding model."""
 
@@ -51,6 +114,9 @@ class EmbeddingModel:
             raise TypeError("All items in texts must be strings.")
         if any(not text.strip() for text in texts):
             raise ValueError("texts must not contain empty strings.")
+
+        if any(len(chunk_text_by_tokens(text, self.model)) > 1 for text in texts):
+            return np.vstack([embed_long_text(text, self.model) for text in texts])
 
         return self.model.encode(
             texts,
