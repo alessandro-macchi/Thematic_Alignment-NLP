@@ -1,0 +1,2 @@
+text_label,total_texts,single_chunk_texts,multi_chunk_texts,multi_chunk_share,max_chunks_for_one_text,model_max_tokens,effective_chunk_token_limit
+abstracts,1100,295,805,0.7318181818181818,5,256,254
