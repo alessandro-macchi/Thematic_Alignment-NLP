@@ -12,6 +12,11 @@ from journal_alignment.config import ProjectConfig
 from journal_alignment.data import ArticleDataset
 from journal_alignment.embeddings import EmbeddingModel
 from journal_alignment.preprocessing import clean_text, preprocess_dataframe
+from journal_alignment.topic_model import (
+    build_outlier_topic_assignments,
+    check_bertopic_dependencies,
+    run_bertopic_analysis,
+)
 from journal_alignment.visualization import (
     plot_alignment_boxplot,
     plot_alignment_by_year,
@@ -53,15 +58,28 @@ class AlignmentPipeline:
             text_column="abstract",
         )
 
+        if self.config.run_topic_model:
+            LOGGER.info("Checking BERTopic dependencies")
+            check_bertopic_dependencies()
+
         LOGGER.info("Loading embedding model: %s", self.config.model_name)
         analyzer = AlignmentAnalyzer(
             embedding_model=EmbeddingModel(model_name=self.config.model_name)
         )
 
         LOGGER.info("Computing embedding alignment scores")
-        scored_df = analyzer.compute_embedding_alignment(
+        (
+            abstract_embeddings,
+            aims_scope_embedding,
+            chunking_report,
+        ) = analyzer.compute_embeddings(
             df=processed_articles,
             aims_scope=aims_scope,
+        )
+        scored_df = analyzer.add_embedding_alignment_scores(
+            df=processed_articles,
+            abstract_embeddings=abstract_embeddings,
+            aims_scope_embedding=aims_scope_embedding,
         )
 
         LOGGER.info("Computing TF-IDF baseline scores")
@@ -70,6 +88,19 @@ class AlignmentPipeline:
             aims_scope=aims_scope,
         )
 
+        topic_results = None
+        if self.config.run_topic_model:
+            LOGGER.info("Fitting BERTopic model using pre-computed embeddings")
+            topic_results = run_bertopic_analysis(
+                df=scored_df,
+                abstract_embeddings=abstract_embeddings,
+                topics_over_time_path=self.config.figures_dir
+                / "bertopic_topics_over_time.png",
+                random_state=self.config.bertopic_random_state,
+                min_cluster_size=self.config.hdbscan_min_cluster_size,
+            )
+            scored_df = topic_results.article_topics
+
         LOGGER.info("Building summary tables")
         results = analyzer.build_summary_tables(
             scored_df,
@@ -77,6 +108,15 @@ class AlignmentPipeline:
             outlier_method=self.config.outlier_method,
             z_threshold=self.config.z_threshold,
         )
+        results["chunk_count_report"] = chunking_report.to_dataframe()
+
+        if topic_results is not None:
+            results["bertopic_topic_summary"] = topic_results.topic_summary
+            results["bertopic_topic_diagnostics"] = topic_results.topic_diagnostics
+            results["bertopic_topics_over_time"] = topic_results.topics_over_time
+            results["outlier_topic_assignments"] = build_outlier_topic_assignments(
+                results["alignment_scores"]
+            )
 
         LOGGER.info("Saving CSV outputs")
         self.save_results(results)
@@ -92,7 +132,7 @@ class AlignmentPipeline:
     ) -> None:
         """Save result DataFrames to the project output directories."""
 
-        output_paths = {
+        required_output_paths = {
             "alignment_scores": self.config.results_dir / "alignment_scores.csv",
             "summary_statistics": self.config.tables_dir / "summary_statistics.csv",
             "yearly_alignment": self.config.tables_dir / "yearly_alignment.csv",
@@ -101,12 +141,27 @@ class AlignmentPipeline:
             "least_aligned_articles": self.config.tables_dir
             / "least_aligned_articles.csv",
             "outlier_articles": self.config.tables_dir / "outlier_articles.csv",
+            "chunk_count_report": self.config.tables_dir / "chunk_count_report.csv",
+        }
+        optional_output_paths = {
+            "bertopic_topic_summary": self.config.tables_dir
+            / "bertopic_topic_summary.csv",
+            "bertopic_topic_diagnostics": self.config.tables_dir
+            / "bertopic_topic_diagnostics.csv",
+            "bertopic_topics_over_time": self.config.tables_dir
+            / "bertopic_topics_over_time.csv",
+            "outlier_topic_assignments": self.config.tables_dir
+            / "outlier_topic_assignments.csv",
         }
 
-        for result_name, output_path in output_paths.items():
+        for result_name, output_path in required_output_paths.items():
             if result_name not in results:
                 raise KeyError(f"Missing result DataFrame: {result_name}")
             self._save_csv(results[result_name], output_path)
+
+        for result_name, output_path in optional_output_paths.items():
+            if result_name in results:
+                self._save_csv(results[result_name], output_path)
 
     def generate_figures(
         self,

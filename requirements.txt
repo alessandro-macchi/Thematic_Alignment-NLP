@@ -4,3 +4,6 @@ scikit-learn
 matplotlib
 jupyter
 sentence-transformers
+bertopic
+umap-learn
+hdbscan

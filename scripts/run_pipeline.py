@@ -56,6 +56,11 @@ def parse_args() -> argparse.Namespace:
         default=default_config.z_threshold,
         help="Absolute z-score threshold used when --outlier-method zscore.",
     )
+    parser.add_argument(
+        "--skip-topic-model",
+        action="store_true",
+        help="Skip the optional BERTopic corpus-structure analysis.",
+    )
     return parser.parse_args()
 
 
@@ -70,12 +75,14 @@ def main() -> None:
         top_n=args.top_n,
         outlier_method=args.outlier_method,
         z_threshold=args.z_threshold,
+        run_topic_model=not args.skip_topic_model,
     )
 
     print("Starting journal alignment pipeline")
     print(f"Articles CSV: {config.articles_path}")
     print(f"Aims & Scope TXT: {config.aims_scope_path}")
     print(f"Embedding model: {config.model_name}")
+    print(f"BERTopic enabled: {config.run_topic_model}")
 
     pipeline = AlignmentPipeline(config)
     results = pipeline.run()
@@ -85,6 +92,12 @@ def main() -> None:
     print(f"Alignment scores saved to: {config.results_dir / 'alignment_scores.csv'}")
     print(f"Tables saved to: {config.tables_dir}")
     print(f"Figures saved to: {config.figures_dir}")
+    if config.run_topic_model and "bertopic_topic_diagnostics" in results:
+        noise_size = results["bertopic_topic_diagnostics"].loc[
+            results["bertopic_topic_diagnostics"]["metric"] == "noise_cluster_size",
+            "value",
+        ].iloc[0]
+        print(f"BERTopic noise cluster size: {noise_size}")
 
 
 if __name__ == "__main__":

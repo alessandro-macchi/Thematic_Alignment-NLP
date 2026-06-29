@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
-from journal_alignment.embeddings import EmbeddingModel
+from journal_alignment.embeddings import ChunkingReport, EmbeddingModel
 from journal_alignment.metrics import (
     aggregate_by_year,
     compute_alignment_scores,
@@ -30,9 +31,44 @@ class AlignmentAnalyzer:
     ) -> pd.DataFrame:
         """Add semantic alignment scores against the journal Aims & Scope text."""
 
+        abstract_embeddings, aims_scope_embedding, _ = self.compute_embeddings(
+            df=df,
+            aims_scope=aims_scope,
+        )
+        return self.add_embedding_alignment_scores(
+            df=df,
+            abstract_embeddings=abstract_embeddings,
+            aims_scope_embedding=aims_scope_embedding,
+        )
+
+    def compute_embeddings(
+        self,
+        df: pd.DataFrame,
+        aims_scope: str,
+    ) -> tuple[np.ndarray, np.ndarray, ChunkingReport]:
+        """Compute article and Aims & Scope embeddings once for reuse."""
+
         texts = self._article_texts(df)
-        abstract_embeddings = self.embedding_model.encode_texts(texts)
+        abstract_embeddings = self.embedding_model.encode_texts(
+            texts,
+            text_label="abstracts",
+        )
+        chunking_report = self.embedding_model.last_chunking_report
+        if chunking_report is None:
+            raise RuntimeError("Embedding chunking report was not recorded.")
+
         aims_scope_embedding = self.embedding_model.encode_single(aims_scope)
+
+        return abstract_embeddings, aims_scope_embedding, chunking_report
+
+    def add_embedding_alignment_scores(
+        self,
+        df: pd.DataFrame,
+        abstract_embeddings: np.ndarray,
+        aims_scope_embedding: np.ndarray,
+    ) -> pd.DataFrame:
+        """Add semantic alignment scores from pre-computed embeddings."""
+
         scores = compute_alignment_scores(abstract_embeddings, aims_scope_embedding)
 
         result = df.copy()

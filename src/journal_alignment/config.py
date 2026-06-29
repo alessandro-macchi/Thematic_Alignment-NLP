@@ -28,3 +28,6 @@ class ProjectConfig:
     outlier_method: str = "z_score"
     z_threshold: float = 2.0
     random_seed: int = 42
+    run_topic_model: bool = True
+    bertopic_random_state: int = 6
+    hdbscan_min_cluster_size: int = 15
