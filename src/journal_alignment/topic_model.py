@@ -335,8 +335,6 @@ def plot_topics_over_time(
         sorted_timestamps = sorted(pivot.index.tolist(), key=_timestamp_sort_key)
         pivot = pivot.loc[sorted_timestamps]
         x_positions = np.arange(len(pivot.index))
-        labels = _topic_label_lookup(topic_summary)
-
         for topic_id in top_topic_ids:
             if topic_id not in pivot.columns:
                 continue
@@ -346,7 +344,7 @@ def plot_topics_over_time(
                 marker="o",
                 linewidth=1.8,
                 markersize=4,
-                label=labels.get(topic_id, f"Topic {topic_id}"),
+                label=f"Topic {int(topic_id)}",
             )
 
         ax.set_title("BERTopic Topics Over Time", fontsize=13, fontweight="bold", pad=12)
