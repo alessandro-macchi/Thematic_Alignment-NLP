@@ -16,19 +16,15 @@ then computes:
 
 - a semantic alignment score using SentenceTransformer embeddings and cosine
   similarity;
-- a TF-IDF cosine similarity score as a simpler baseline;
 - descriptive statistics, yearly trends, top and least aligned articles, and
-  score outliers.
-
-This follows the NLP course material structure: text preprocessing, vector
-representations, cosine similarity, and descriptive analysis of document-level
-scores.
+  score outliers;
+- a BERTopic analysis to describe the main thematic clusters, their
+  evolution over time, and the documents assigned to the noise cluster.
 
 ## Repository Structure
 
 ```text
 nlp/
-  course_material/             # NLP lecture notebooks and project instructions
   data/
     raw/
       articles_pubmed.csv      # PubMed article metadata and abstracts
@@ -44,9 +40,11 @@ nlp/
     fetch_pubmed_articles.py   # Download PubMed metadata for one journal
     run_pipeline.py            # Run the full local analysis pipeline
   src/
-    journal_alignment/         # Reusable project code
+    journal_alignment/         # Project code
   requirements.txt
   README.md
+  report.pdf                   
+  presentation.pdf             
 ```
 
 ## Installation
@@ -58,7 +56,8 @@ pip install -r requirements.txt
 ```
 
 The first run of the pipeline may download the selected SentenceTransformer
-model. The default model is:
+model. BERTopic and its clustering dependencies are installed through
+`requirements.txt`. The default embedding model is:
 
 ```text
 sentence-transformers/all-MiniLM-L6-v2
@@ -94,17 +93,19 @@ journal website or another official source.
 
 ### 1. Fetch PubMed Articles
 
-To reproduce the current data collection step:
+The stored results in this repository use articles dated **2015-2025**. To
+reproduce that same time window, run:
+
+```bash
+python scripts/fetch_pubmed_articles.py --journal-name "World Journal of Orthopedics" --output-path data/raw/articles_pubmed.csv --start-year 2015 --end-year 2025 --max-results 5000
+```
+
+If no years are passed, the fetch script searches from the current calendar year
+back 10 years. For example, if run in 2026, the default search window is
+2016-2026.
 
 ```bash
 python scripts/fetch_pubmed_articles.py --journal-name "World Journal of Orthopedics" --output-path data/raw/articles_pubmed.csv --max-results 5000
-```
-
-By default, the fetch script searches the last 10 years up to the current year.
-For a fixed time window, pass explicit years:
-
-```bash
-python scripts/fetch_pubmed_articles.py --journal-name "World Journal of Orthopedics" --output-path data/raw/articles_pubmed.csv --start-year 2016 --end-year 2026 --max-results 5000
 ```
 
 ### 2. Add The Aims & Scope Text
@@ -131,6 +132,12 @@ Optional arguments:
 python scripts/run_pipeline.py --articles-path data/raw/articles_pubmed.csv --aims-scope-path data/raw/aims_scope.txt --model-name sentence-transformers/all-MiniLM-L6-v2 --top-n 10 --outlier-method zscore --z-threshold 2.0
 ```
 
+To skip the optional BERTopic analysis and produce only the alignment outputs:
+
+```bash
+python scripts/run_pipeline.py --articles-path data/raw/articles_pubmed.csv --aims-scope-path data/raw/aims_scope.txt --skip-topic-model
+```
+
 ### 4. Inspect The Results
 
 Open the generated CSV files and figures in `data/results/` and `reports/`.
@@ -153,6 +160,12 @@ reports/tables/yearly_alignment.csv
 reports/tables/top_aligned_articles.csv
 reports/tables/least_aligned_articles.csv
 reports/tables/outlier_articles.csv
+reports/tables/chunk_count_report.csv
+reports/tables/bertopic_topic_summary.csv
+reports/tables/bertopic_topic_diagnostics.csv
+reports/tables/bertopic_noise_diagnostics.csv
+reports/tables/bertopic_topics_over_time.csv
+reports/tables/outlier_topic_assignments.csv
 ```
 
 Figures:
@@ -162,7 +175,20 @@ reports/figures/alignment_histogram.png
 reports/figures/alignment_boxplot.png
 reports/figures/alignment_by_year.png
 reports/figures/article_scores_by_year.png
+reports/figures/bertopic_topics_over_time.png
 ```
+
+## Current Run Summary
+
+The current stored outputs analyze 1100 validated article abstracts from the
+World Journal of Orthopedics between 2015 and 2025.
+
+- Mean semantic alignment score: 0.343.
+- Median semantic alignment score: 0.342.
+- Minimum and maximum semantic alignment scores: 0.035 and 0.747.
+- BERTopic finds 9 non-noise topics plus one noise cluster.
+- The largest non-noise topics are fractures/hip/femoral articles, knee/TKA
+  articles, and spinal/lumbar pain articles.
 
 ## How To Read The Scores
 
@@ -170,11 +196,28 @@ reports/figures/article_scores_by_year.png
 and the Aims & Scope embedding. Higher values indicate stronger semantic
 similarity with the journal's stated thematic scope.
 
-`tfidf_alignment_score` is a baseline score based on TF-IDF vectors. It is less
-contextual than the embedding score, but it is useful as a simple comparison.
+`is_outlier` marks unusually high or low semantic alignment scores according to
+the configured outlier rule. The default rule is based on z-scores with a
+threshold of 2.0.
 
 The yearly table can be used to discuss whether the journal's published
 articles become more or less aligned with its stated scope over time.
+
+The BERTopic outputs should be interpreted as a complementary description of
+corpus structure. Topic IDs describe groups of abstracts with similar vocabulary
+and embeddings; they are not manual journal categories.
+
+The BERTopic noise cluster is treated as a diagnostic group, not as irrelevant
+content. In the current run, 267 out of 1100 articles are assigned to noise
+(24.3%). Their abstracts are not shorter than clustered articles: the mean
+abstract length is 247 words for noise articles versus 241 words for clustered
+articles. This suggests the noise group is driven more by heterogeneous or
+borderline themes than by very short abstracts.
+
+## Main Report Artifacts
+
+- `notebooks/demo_analysis.ipynb`: step-by-step notebook for inspecting the
+  generated tables and figures.
 
 ## Main Modules
 
@@ -185,4 +228,6 @@ articles become more or less aligned with its stated scope over time.
 - `metrics.py`: cosine similarity, TF-IDF similarity, summaries, yearly
   aggregation, and outlier detection.
 - `analysis.py`: article ranking and summary table construction.
+- `topic_model.py`: BERTopic summaries, topic timing, outlier-topic
+  assignments, and noise-cluster diagnostics.
 - `pipeline.py`: end-to-end orchestration, output saving, and figure generation.
