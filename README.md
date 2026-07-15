@@ -43,8 +43,7 @@ nlp/
     journal_alignment/         # Project code
   requirements.txt
   README.md
-  report.pdf                   
-  presentation.pdf             
+  report.pdf       
 ```
 
 ## Installation
